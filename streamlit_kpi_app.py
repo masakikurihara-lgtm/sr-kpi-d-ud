@@ -16,10 +16,7 @@ logging.basicConfig(level=logging.INFO)
 # SHOWROOM オーガナイザーページのライブKPI URL
 SR_LIVE_KPI_URL = "https://www.showroom-live.com/organizer/live_kpi"
 
-# KPIデータの格納先パス (要件: https://mksoul-pro.com/showroom/csv/YYYY-MM_all_all.csv に基づく)
-# Secretsのtarget_base_pathは無視し、こちらを固定で使用します。
-FTP_BASE_PATH = "/showroom/csv/"
-
+# KPIデータの格納先パス (FTP_BASE_PATHはSecretsから読み込むため、ここでは定義を削除)
 
 # --- ユーティリティ関数 ---
 
@@ -157,12 +154,11 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
             record[CSV_HEADERS[1]] = col_data[1].strip()
             
             # 2. 配信日時【配信時間（分・秒）】の処理
-            datetime_duration_str = col_data[2].strip() # 例: '2025-10-31 21:06:59 - 23:14:23 (127m24s)'
+            datetime_duration_str = col_data[2].strip() 
             
             # 配信日時 (開始時刻) の抽出
             datetime_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', datetime_duration_str)
             if datetime_match:
-                # 最終的なCSVの書式に合わせるため YYYY/MM/DD HH:MM:SS に変換
                 start_datetime = datetime.strptime(datetime_match.group(1), '%Y-%m-%d %H:%M:%S')
                 record[CSV_HEADERS[2]] = start_datetime.strftime('%Y/%m/%d %H:%M:%S')
             else:
@@ -179,7 +175,7 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
                 value = col_data[html_col_index]
                 
                 # 数値・パーセンテージデータのクリーンアップ
-                # ★★★ 修正箇所 ★★★: csv_col_index >= 6 (合計視聴数) からクリーニングを開始
+                # csv_col_index >= 6 (合計視聴数) からクリーニングを開始
                 if csv_col_index >= 6 and csv_col_index <= 27: 
                     # カンマ(,)除去、パーセント(%)除去、ハイフン(-)を空文字列に
                     value = value.replace(',', '').replace('-', '').replace('%', '')
@@ -200,8 +196,6 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
     return df
 
 
-# streamlit_kpi_app.py 内の process_kpi_data 関数
-
 def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     データフレームの整形、重複削除、データ型の強制変換を行います。
@@ -220,7 +214,6 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     ]
     
     # SPギフト使用会員率 (%) のみ個別に処理 (floatとして扱う)
-    # 値がない場合は'0'として処理
     df['SPギフト使用会員率'] = pd.to_numeric(
         df['SPギフト使用会員率'].astype(str).str.replace(r'[^\d.]', '', regex=True).replace('', '0'), 
         errors='coerce'
@@ -228,18 +221,11 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     
     # 整数カラムの処理を強化 (非数字を徹底除去し、intに変換)
     for col in numeric_cols:
-        # 文字列に変換後、数字、ハイフン(-), 小数点(.)以外の文字をすべて削除
-        # ただし、ここでは整数として扱うカラムがほとんどなので、小数点も削除します。
         cleaned_series = df[col].astype(str).str.replace(r'[^\d-]', '', regex=True)
-        
-        # クリーニング後、空文字列になった場合は'0'に置換
         cleaned_series = cleaned_series.replace('', '0')
-
-        # to_numericで数値に変換し、NaNを0で埋めてintに変換
         df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(0).astype(int)
 
     # --- 重複データの削除 ---
-    # キー: アカウントID、ルームID、配信日時、配信時間(分)
     dedupe_cols = ["アカウントID", "ルームID", "配信日時", "配信時間(分)"]
     
     initial_count = len(df)
@@ -260,7 +246,6 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         "2023年9月以前のおまけ分(無償SG RS外)"
     ]
     
-    # 最終的なデータフレームを返す前に、Streamlitとの互換性のため一旦コピーを返します
     return df[final_cols].copy()
 
 
@@ -277,6 +262,10 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
         FTP_HOST = st.secrets["ftp"]["host"]
         FTP_USER = st.secrets["ftp"]["user"]
         FTP_PASS = st.secrets["ftp"]["password"]
+        
+        # ★★★ 修正箇所 ★★★: Secretsからtarget_base_pathを読み込む
+        FTP_BASE_PATH_FROM_SECRETS = st.secrets["ftp"]["target_base_path"]
+        
     except KeyError:
         st.error("❌ Streamlit SecretsからFTP接続情報を読み込めませんでした。設定を確認してください。")
         return
@@ -284,8 +273,9 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
     year_month = month_dt.strftime("%Y-%m")
     # ファイル名: YYYY-MM_all_all.csv
     filename = f"{year_month}_all_all.csv"
-    # FTP BASE PATHはコードで定義した/showroom/csv/を使用
-    ftp_path = f"{FTP_BASE_PATH}{filename}"
+    
+    # Secretsから読み込んだパスをそのまま使用
+    ftp_path = f"{FTP_BASE_PATH_FROM_SECRETS}{filename}"
     
     # CSVデータをインメモリで作成 (UTF-8 with BOM)
     csv_buffer = io.StringIO()
@@ -304,11 +294,10 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
         st.success(f"✅ FTPアップロード完了: **{ftp_path}**")
 
     except Exception as e:
+        # エラーメッセージを詳細に表示
         st.error(f"❌ FTPアップロード中にエラーが発生しました: {e}")
         st.warning(f"接続情報 (Host: {FTP_HOST}, User: {FTP_USER}) が正しいか、およびパス **{ftp_path}** への書き込み権限を確認してください。")
 
-
-# streamlit_kpi_app.py 内の main 関数
 
 # --- Streamlitメイン処理 ---
 
@@ -379,7 +368,7 @@ def main():
                 
                 # 整形後も空でないか確認（最終チェック）
                 if not processed_df.empty:
-                    # ★★★ 最終修正箇所：st.dataframe()をコメントアウトしてエラーを回避 ★★★
+                    # ★st.dataframe()は引き続きコメントアウトし、エラーを回避★
                     # st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
                     st.success(f"データ ({len(processed_df)} 件) を正常に取得・整形しました。アップロードを開始します。")
 
