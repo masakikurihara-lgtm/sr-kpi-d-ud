@@ -330,7 +330,7 @@ def main():
     selected_labels = st.multiselect(
         "処理対象の配信月を選択してください (複数選択可能):",
         options=month_labels,
-        default=month_labels[:1] # デフォルトで最新の月を選択
+        default=month_labels[:1]
     )
 
     if not selected_labels:
@@ -348,6 +348,7 @@ def main():
     
     # 3. 実行ボタン
     if st.button("🚀 KPIデータの全てを取得・FTPアップロードを実行", type="primary"):
+        all_success = True
         with st.spinner("処理中: 選択された月のKPIデータを取得・整形しています..."):
             
             # 選択された月を順番に処理
@@ -358,22 +359,31 @@ def main():
                 raw_df = scrape_kpi_data(session, month_dt)
                 
                 if raw_df.empty:
-                    st.warning(f"{month_dt.strftime('%Y/%m')} のデータは処理をスキップします。")
+                    st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは取得できませんでした。処理をスキップします。")
+                    all_success = False
+                    st.markdown("---")
                     continue
                 
                 # 2. データ整形と重複削除
                 processed_df = process_kpi_data(raw_df)
                 
+                # ★★★★ 修正点: データフレームが空でないかチェック ★★★★
                 if not processed_df.empty:
                     st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
 
                     # 3. FTPアップロード
                     upload_to_ftp(processed_df, month_dt)
+                else:
+                    st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは、整形後に残ったレコードが0件でした。アップロードをスキップします。")
+                    all_success = False
                 
                 st.markdown("---") # 月の区切り線
 
         st.balloons()
-        st.success("🎉 全ての処理が完了しました！")
+        if all_success:
+            st.success("🎉 全ての処理が完了しました！")
+        else:
+            st.info("処理は完了しましたが、一部の月でデータが見つからなかったか、エラーが発生しました。ログを確認してください。")
         
 if __name__ == "__main__":
     main()
