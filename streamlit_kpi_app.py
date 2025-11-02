@@ -308,6 +308,8 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
         st.warning(f"接続情報 (Host: {FTP_HOST}, User: {FTP_USER}) が正しいか、およびパス **{ftp_path}** への書き込み権限を確認してください。")
 
 
+# streamlit_kpi_app.py 内の main 関数
+
 # --- Streamlitメイン処理 ---
 
 def main():
@@ -377,7 +379,9 @@ def main():
                 
                 # 整形後も空でないか確認（最終チェック）
                 if not processed_df.empty:
-                    st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
+                    # ★★★ 最終修正箇所：st.dataframe()をコメントアウトしてエラーを回避 ★★★
+                    # st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
+                    st.success(f"データ ({len(processed_df)} 件) を正常に取得・整形しました。アップロードを開始します。")
 
                     # 3. FTPアップロード
                     upload_to_ftp(processed_df, month_dt)
