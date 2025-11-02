@@ -179,7 +179,8 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
                 value = col_data[html_col_index]
                 
                 # 数値・パーセンテージデータのクリーンアップ
-                if csv_col_index >= 5 and csv_col_index <= 27:
+                # ★★★ 修正箇所 ★★★: csv_col_index >= 6 (合計視聴数) からクリーニングを開始
+                if csv_col_index >= 6 and csv_col_index <= 27: 
                     # カンマ(,)除去、パーセント(%)除去、ハイフン(-)を空文字列に
                     value = value.replace(',', '').replace('-', '').replace('%', '')
                 
@@ -358,7 +359,7 @@ def main():
                 # 1. データ取得
                 raw_df = scrape_kpi_data(session, month_dt)
                 
-                # ★★★ 修正点: raw_dfが空ならすぐに次の月にスキップ ★★★
+                # raw_dfが空ならすぐに次の月にスキップ
                 if raw_df.empty:
                     st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは取得できませんでした。処理をスキップします。")
                     all_success = False
@@ -368,7 +369,7 @@ def main():
                 # 2. データ整形と重複削除
                 processed_df = process_kpi_data(raw_df)
                 
-                # ★★★ 修正点: 整形後も空でないか確認（最終チェック） ★★★
+                # 整形後も空でないか確認（最終チェック）
                 if not processed_df.empty:
                     st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
 
