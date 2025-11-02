@@ -200,9 +200,11 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
     return df
 
 
+# streamlit_kpi_app.py 内の process_kpi_data 関数
+
 def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     """
-    データフレームの整形、重複削除を行います。
+    データフレームの整形、重複削除、データ型の強制変換を行います。
     """
     if df.empty:
         return df
@@ -217,22 +219,25 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         "2023年9月以前のおまけ分(無償SG RS外)"
     ]
     
-    # SPギフト使用会員率 (%) のみ個別に処理
+    # SPギフト使用会員率 (%) のみ個別に処理 (floatとして扱う)
+    # 値がない場合は'0'として処理
     df['SPギフト使用会員率'] = pd.to_numeric(
-        df['SPギフト使用会員率'].replace('', '0'), errors='coerce'
+        df['SPギフト使用会員率'].astype(str).str.replace(r'[^\d.]', '', regex=True).replace('', '0'), 
+        errors='coerce'
     ).fillna(0).round(1)
     
+    # 整数カラムの処理を強化 (非数字を徹底除去し、intに変換)
     for col in numeric_cols:
-        # 空白やハイフンを'0'に置換して数値に変換
-        df[col] = pd.to_numeric(
-            df[col].replace('', '0').replace('-', '0'), errors='coerce'
-        ).fillna(0)
-    
-    # 整数のカラムをint型に変換
-    int_cols = [c for c in numeric_cols if c != "SPギフト使用会員率"]
-    for col in int_cols:
-        df[col] = df[col].astype(int)
+        # 文字列に変換後、数字、ハイフン(-), 小数点(.)以外の文字をすべて削除
+        # ただし、ここでは整数として扱うカラムがほとんどなので、小数点も削除します。
+        cleaned_series = df[col].astype(str).str.replace(r'[^\d-]', '', regex=True)
         
+        # クリーニング後、空文字列になった場合は'0'に置換
+        cleaned_series = cleaned_series.replace('', '0')
+
+        # to_numericで数値に変換し、NaNを0で埋めてintに変換
+        df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(0).astype(int)
+
     # --- 重複データの削除 ---
     # キー: アカウントID、ルームID、配信日時、配信時間(分)
     dedupe_cols = ["アカウントID", "ルームID", "配信日時", "配信時間(分)"]
@@ -255,7 +260,8 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         "2023年9月以前のおまけ分(無償SG RS外)"
     ]
     
-    return df[final_cols]
+    # 最終的なデータフレームを返す前に、Streamlitとの互換性のため一旦コピーを返します
+    return df[final_cols].copy()
 
 
 def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
