@@ -196,16 +196,21 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
     return df
 
 
+# streamlit_kpi_app.py 内の process_kpi_data 関数
+
 def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     """
-    データフレームの整形、重複削除、データ型の強制変換を行います。
+    データフレームの整形、重複削除、データ型の安全な変換を行います。
+    ブランク、ハイフン、マイナス符号を元の意図通りに維持するよう修正。
     """
     if df.empty:
         return df
 
     # --- データ型の調整とクリーニング ---
+    # CSVヘッダーの順番に基づいて、数値として扱うカラムを定義
     numeric_cols = [
         "配信時間(分)", "連続配信日数", "合計視聴数", "視聴会員数", "アクション会員数", 
+        # SPギフト使用会員率 はfloatとして個別に扱う
         "初ルーム来訪者数", "初SR来訪者数", "短時間滞在者数", "ルームレベル", "フォロワー数", 
         "フォロワー増減数", "Post人数", "獲得支援point", "コメント数", "コメント人数", 
         "初コメント人数", "ギフト数", "ギフト人数", "初ギフト人数", "期限あり/期限なしSGのギフティング数", 
@@ -213,21 +218,27 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         "2023年9月以前のおまけ分(無償SG RS外)"
     ]
     
-    # SPギフト使用会員率 (%) のみ個別に処理 (floatとして扱う)
+    # 1. SPギフト使用会員率 (%) の処理 (floatでNaNを許可)
+    df['SPギフト使用会員率'] = df['SPギフト使用会員率'].astype(str).str.strip().replace('-', '')
     df['SPギフト使用会員率'] = pd.to_numeric(
-        df['SPギフト使用会員率'].astype(str).str.replace(r'[^\d.]', '', regex=True).replace('', '0'), 
-        errors='coerce'
-    ).fillna(0).round(1)
+        df['SPギフト使用会員率'].replace('', pd.NA), errors='coerce'
+    ).astype(float).round(1)
     
-    # 整数カラムの処理を強化 (非数字を徹底除去し、intに変換)
+    # 2. 整数カラムの処理 (Int64を使用してブランク/欠損値を維持)
     for col in numeric_cols:
-        cleaned_series = df[col].astype(str).str.replace(r'[^\d-]', '', regex=True)
-        cleaned_series = cleaned_series.replace('', '0')
-        df[col] = pd.to_numeric(cleaned_series, errors='coerce').fillna(0).astype(int)
+        # 文字列に変換し、カンマ(,)と全角スペースを削除
+        cleaned_series = df[col].astype(str).str.replace(',', '').str.strip()
+        
+        # ハイフン(-)や空文字列を欠損値(NaN)として扱う
+        cleaned_series = cleaned_series.replace(['', '-'], pd.NA)
+
+        # to_numericで数値に変換し、Int64型に変換（NaN/NAを許容する整数型）
+        # 'Int64'を使用することで、①ブランクをブランク（NA）のまま維持し、②マイナス符号も維持します。
+        df[col] = pd.to_numeric(cleaned_series, errors='coerce').astype('Int64')
 
     # --- 重複データの削除 ---
+    # (変更なし)
     dedupe_cols = ["アカウントID", "ルームID", "配信日時", "配信時間(分)"]
-    
     initial_count = len(df)
     df.drop_duplicates(subset=dedupe_cols, keep='first', inplace=True)
     deduped_count = len(df)
@@ -236,6 +247,7 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         st.success(f"重複データを {initial_count - deduped_count} 件削除しました。")
     
     # 最終的なCSVの並び順にカラムを整理
+    # (変更なし)
     final_cols = [
         "アカウントID", "ルームID", "配信日時", "配信時間(分)", "連続配信日数", "ルーム名",
         "合計視聴数", "視聴会員数", "アクション会員数", "SPギフト使用会員率", "初ルーム来訪者数",
@@ -245,6 +257,10 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         "期限あり/期限なしSGのギフティング人数", "期限あり/期限なしSG総額", 
         "2023年9月以前のおまけ分(無償SG RS外)"
     ]
+    
+    # Int64型を、CSV書き出し前にPythonの標準欠損値（空文字列）に戻すことで、ブランクで出力します。
+    # 欠損値（pd.NA）を空文字列に変換
+    df = df.replace({pd.NA: ''})
     
     return df[final_cols].copy()
 
