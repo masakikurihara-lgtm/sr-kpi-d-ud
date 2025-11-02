@@ -328,7 +328,8 @@ def main():
         with st.spinner("処理中: 選択された月のKPIデータを取得・整形しています..."):
             
             for month_dt in selected_months:
-                st.subheader(f"📅 {month_dt.strftime('%Y/%m')} の処理を開始")
+                #st.subheader(f"📅 {month_dt.strftime('%Y/%m')} の処理を開始")
+                st.markdown(f"##### 📅 {month_dt.strftime('%Y/%m')} の処理を開始")
                 
                 # 1. データ取得
                 raw_df = scrape_kpi_data(session, month_dt)
