@@ -276,8 +276,12 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
 # --- Streamlitメイン処理 ---
 
 def main():
-    st.set_page_config(page_title="SHOWROOM KPIデータ アップロードツール", layout="wide")
-    st.title("ライバーKPIデータ 自動アップロードツール (ライブ配信KPI)")
+    st.set_page_config(page_title="SHOWROOM ライブKPIアップロード", layout="wide")
+    #st.title("ライバーKPIデータ 自動アップロードツール (ライブ配信KPI)")
+    st.markdown(
+        "<h1 style='font-size:28px; text-align:left; color:#1f2937;'>SHOWROOM ライブKPIアップロード</h1>",
+        unsafe_allow_html=True
+    )  
     st.markdown("---")
 
     # --- Secretsから機密情報を読み込み ---
