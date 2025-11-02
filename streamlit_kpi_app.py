@@ -320,7 +320,8 @@ def main():
     
     st.info(f"選択された月: **{', '.join(selected_labels)}**")
     
-    st.header("2. データ取得とアップロードの実行")
+    #st.header("2. データ取得とアップロードの実行")
+    st.markdown("#### 2. データ取得とアップロードの実行")
     
     # 3. 実行ボタン
     if st.button("🚀 KPIデータの全てを取得・FTPアップロードを実行", type="primary"):
