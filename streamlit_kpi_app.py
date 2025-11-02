@@ -358,6 +358,7 @@ def main():
                 # 1. データ取得
                 raw_df = scrape_kpi_data(session, month_dt)
                 
+                # ★★★ 修正点: raw_dfが空ならすぐに次の月にスキップ ★★★
                 if raw_df.empty:
                     st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは取得できませんでした。処理をスキップします。")
                     all_success = False
@@ -367,14 +368,14 @@ def main():
                 # 2. データ整形と重複削除
                 processed_df = process_kpi_data(raw_df)
                 
-                # ★★★★ 修正点: データフレームが空でないかチェック ★★★★
+                # ★★★ 修正点: 整形後も空でないか確認（最終チェック） ★★★
                 if not processed_df.empty:
                     st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
 
                     # 3. FTPアップロード
                     upload_to_ftp(processed_df, month_dt)
                 else:
-                    st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは、整形後に残ったレコードが0件でした。アップロードをスキップします。")
+                    st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは、整形（重複削除など）後に残ったレコードが0件でした。アップロードをスキップします。")
                     all_success = False
                 
                 st.markdown("---") # 月の区切り線
