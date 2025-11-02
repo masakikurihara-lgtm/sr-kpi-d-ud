@@ -16,8 +16,6 @@ logging.basicConfig(level=logging.INFO)
 # SHOWROOM オーガナイザーページのライブKPI URL
 SR_LIVE_KPI_URL = "https://www.showroom-live.com/organizer/live_kpi"
 
-# KPIデータの格納先パス (FTP_BASE_PATHはSecretsから読み込むため、ここでは定義を削除)
-
 # --- ユーティリティ関数 ---
 
 def parse_cookie_string(cookie_string: str) -> dict:
@@ -174,11 +172,12 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
                 
                 value = col_data[html_col_index]
                 
+                # ★★★ 修正箇所: マイナス符号 (-) の除去を停止 ★★★
                 # 数値・パーセンテージデータのクリーンアップ
                 # csv_col_index >= 6 (合計視聴数) からクリーニングを開始
                 if csv_col_index >= 6 and csv_col_index <= 27: 
-                    # カンマ(,)除去、パーセント(%)除去、ハイフン(-)を空文字列に
-                    value = value.replace(',', '').replace('-', '').replace('%', '')
+                    # カンマ(,)除去、パーセント(%)除去のみを行い、マイナス符号の除去は行わない
+                    value = value.replace(',', '').replace('%', '')
                 
                 record[CSV_HEADERS[csv_col_index]] = value.strip()
             
@@ -215,17 +214,19 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     ]
     
     # 1. SPギフト使用会員率 (%) の処理 (floatでNaNを許可)
-    df['SPギフト使用会員率'] = df['SPギフト使用会員率'].astype(str).str.strip().replace('-', '')
+    # ハイフンは欠損値として扱う
+    df['SPギフト使用会員率'] = df['SPギフト使用会員率'].astype(str).str.strip()
     df['SPギフト使用会員率'] = pd.to_numeric(
-        df['SPギフト使用会員率'].replace('', pd.NA), errors='coerce'
+        df['SPギフト使用会員率'].replace(['', '-'], pd.NA), errors='coerce'
     ).astype(float).round(1)
     
     # 2. 整数カラムの処理 (Int64を使用してブランク/欠損値を維持)
     for col in numeric_cols:
-        # 文字列に変換し、カンマ(,)と全角スペースを削除
-        cleaned_series = df[col].astype(str).str.replace(',', '').str.strip()
+        # 文字列に変換し、カンマ(,)と全角スペースを削除（scrape_kpi_dataでカンマは削除済みだが念のため）
+        cleaned_series = df[col].astype(str).str.strip()
         
-        # ハイフン(-)や空文字列を欠損値(NaN)として扱う
+        # ★★★ 修正済み: ハイフン(-)や空文字列を欠損値(NaN)として扱う ★★★
+        # マイナス符号はここで削除されていないため、to_numericが負の数として処理
         cleaned_series = cleaned_series.replace(['', '-'], pd.NA)
 
         # to_numericで数値に変換し、Int64型に変換（NaN/NAを許容する整数型）
@@ -253,8 +254,8 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     
     df_final = df[final_cols].copy()
     
-    # ★★★ 最終エラー回避のための修正ロジック ★★★
     # 欠損値（pd.NA）を持つカラムをobject型に変換してから空文字列に置換し、TypeErrorを回避
+    # これにより、CSV出力時にブランク（空文字列）が書き出されます。
     cols_with_na = df_final.columns[df_final.isna().any()].tolist()
     
     for col in cols_with_na:
@@ -281,7 +282,7 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
         FTP_USER = st.secrets["ftp"]["user"]
         FTP_PASS = st.secrets["ftp"]["password"]
         
-        # ★★★ 修正箇所 ★★★: Secretsからtarget_base_pathを読み込む
+        # Secretsからtarget_base_pathを読み込む
         FTP_BASE_PATH_FROM_SECRETS = st.secrets["ftp"]["target_base_path"]
         
     except KeyError:
@@ -297,6 +298,7 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
     
     # CSVデータをインメモリで作成 (UTF-8 with BOM)
     csv_buffer = io.StringIO()
+    # 修正：df_finalはすでにpd.NAが''に変換されているため、そのままto_csvを使用
     df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
     csv_data = csv_buffer.getvalue()
 
@@ -386,8 +388,7 @@ def main():
                 
                 # 整形後も空でないか確認（最終チェック）
                 if not processed_df.empty:
-                    # ★st.dataframe()は引き続きコメントアウトし、エラーを回避★
-                    # st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
+                    # st.dataframe()は引き続きコメントアウトし、エラーを回避
                     st.success(f"データ ({len(processed_df)} 件) を正常に取得・整形しました。アップロードを開始します。")
 
                     # 3. FTPアップロード
