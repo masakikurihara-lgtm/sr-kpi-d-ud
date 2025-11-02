@@ -27,7 +27,6 @@ def parse_cookie_string(cookie_string: str) -> dict:
         return cookies
         
     for pair in cookie_string.split(';'):
-        # ペアに'='が含まれているか確認し、最初の'='で分割
         if '=' in pair:
             key, value = pair.split('=', 1)
             cookies[key.strip()] = value.strip()
@@ -39,24 +38,19 @@ def get_target_months():
     2023年9月以降の月を、現在の月までリストとして返します (マルチセレクト用)。
     """
     months = []
-    # 要件: 2023年9月以降
     start_date = datetime(2023, 9, 1)
-    # 現在の日付
     now = datetime.now()
     
     current_date = start_date
     while current_date <= now.replace(day=1, hour=0, minute=0, second=0, microsecond=0):
-        # YYYY/MM 形式のラベルと datetimeオブジェクトをタプルで保存
         label = current_date.strftime("%Y/%m")
         months.append((label, current_date))
         
-        # 次の月に進む
         if current_date.month == 12:
             current_date = datetime(current_date.year + 1, 1, 1)
         else:
             current_date = datetime(current_date.year, current_date.month + 1, 1)
             
-    # 新しい月が上に来るように逆順にする
     return months[::-1]
 
 def get_month_start_end(dt: datetime):
@@ -66,10 +60,8 @@ def get_month_start_end(dt: datetime):
     year = dt.year
     month = dt.month
     
-    # 開始日 (YYYY-MM-01)
     start_date_str = f"{year}-{month:02d}-01"
     
-    # 終了日 (カレンダーに忠実に、月末の日付を取得)
     _, last_day = calendar.monthrange(year, month)
     end_date_str = f"{year}-{month:02d}-{last_day:02d}"
     
@@ -86,7 +78,6 @@ def parse_live_duration(duration_str: str) -> int:
     minutes = int(match.group(1))
     seconds = int(match.group(2))
     
-    # 30秒以降であれば繰り上げ
     if seconds >= 30:
         return minutes + 1
     else:
@@ -94,7 +85,8 @@ def parse_live_duration(duration_str: str) -> int:
 
 def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFrame:
     """
-    指定された月のライブKPIデータを最大5ページまでスクレイピングします。
+    指定された月のライブKPIデータをスクレイピングし、配信時間(分)以外は全て文字列として保持します。
+    （修正点：カンマ、ハイフン、ブランクを維持するため、数値クリーニングを停止）
     """
     month_label = month_dt.strftime("%Y/%m")
     start_date, end_date = get_month_start_end(month_dt)
@@ -102,9 +94,8 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
     st.info(f"処理対象月: **{month_label}** ({start_date} - {end_date})")
     
     all_records = []
-    MAX_PAGES = 5 # 要件により5ページ
+    MAX_PAGES = 5 
     
-    # CSV添付ファイルに基づいた、最終的な28列のヘッダーを定義
     CSV_HEADERS = [
         "アカウントID", "ルームID", "配信日時", "配信時間(分)", "連続配信日数", "ルーム名",
         "合計視聴数", "視聴会員数", "アクション会員数", "SPギフト使用会員率", "初ルーム来訪者数",
@@ -128,19 +119,17 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # データが存在するテーブルのtbodyを探す
         table_body = soup.find('table', {'class': 'table-striped'}).find('tbody')
         if not table_body:
-            st.info(f"ページ {page}: テーブルボディが見つかりませんでした。配信データなしとみなし、スクレイピングを終了します。")
+            st.info(f"ページ {page}: 配信データが存在しないため、スクレイピングを終了します。")
             break
             
         rows = table_body.find_all('tr')
         
-        # 配信データ行を処理
         data_found = False
         for row in rows:
             cols = row.find_all('td', {'class': 'delim'})
-            if len(cols) != 27: # HTMLの列数は27 (配信日時/時間含む)
+            if len(cols) != 27:
                 continue
             
             data_found = True
@@ -154,7 +143,7 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
             # 2. 配信日時【配信時間（分・秒）】の処理
             datetime_duration_str = col_data[2].strip() 
             
-            # 配信日時 (開始時刻) の抽出
+            # 配信日時 (開始時刻) の抽出と形式変換 (YYYY/MM/DD HH:MM:SS)
             datetime_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', datetime_duration_str)
             if datetime_match:
                 start_datetime = datetime.strptime(datetime_match.group(1), '%Y-%m-%d %H:%M:%S')
@@ -162,24 +151,19 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
             else:
                 record[CSV_HEADERS[2]] = ""
             
-            # 配信時間(分) の抽出と繰り上げ
+            # 配信時間(分) の抽出と繰り上げ (数値として保持)
             record[CSV_HEADERS[3]] = parse_live_duration(datetime_duration_str)
             
             # 4. 連続配信日数 から 26. 2023年9月以前のおまけ分(無償SG RS外) までの処理
             for i in range(3, len(col_data)):
-                html_col_index = i
                 csv_col_index = i + 1
+                value = col_data[i]
                 
-                value = col_data[html_col_index]
+                # HTMLから取得した値の周囲の空白を削除
+                value = value.strip()
                 
-                # ★★★ 修正箇所: マイナス符号 (-) の除去を停止 ★★★
-                # 数値・パーセンテージデータのクリーンアップ
-                # csv_col_index >= 6 (合計視聴数) からクリーニングを開始
-                if csv_col_index >= 6 and csv_col_index <= 27: 
-                    # カンマ(,)除去、パーセント(%)除去のみを行い、マイナス符号の除去は行わない
-                    value = value.replace(',', '').replace('%', '')
-                
-                record[CSV_HEADERS[csv_col_index]] = value.strip()
+                # ★★★ 修正済み: カンマ、ハイフン、ブランクを維持するため、ここでは一切のクリーニングを行わない ★★★
+                record[CSV_HEADERS[csv_col_index]] = value
             
             all_records.append(record)
             
@@ -197,42 +181,14 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
 
 def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     """
-    データフレームの整形、重複削除、データ型の安全な変換を行います。
-    ブランク、ハイフン、マイナス符号を元の意図通りに維持するよう修正。
+    データフレームの重複削除と、最終的な整形のみを行います。
+    （修正点：数値変換ロジックを全て削除し、カンマ、ハイフン、ブランクをそのまま維持します。）
     """
     if df.empty:
         return df
-
-    # --- データ型の調整とクリーニング ---
-    numeric_cols = [
-        "配信時間(分)", "連続配信日数", "合計視聴数", "視聴会員数", "アクション会員数", 
-        "初ルーム来訪者数", "初SR来訪者数", "短時間滞在者数", "ルームレベル", "フォロワー数", 
-        "フォロワー増減数", "Post人数", "獲得支援point", "コメント数", "コメント人数", 
-        "初コメント人数", "ギフト数", "ギフト人数", "初ギフト人数", "期限あり/期限なしSGのギフティング数", 
-        "期限あり/期限なしSGのギフティング人数", "期限あり/期限なしSG総額", 
-        "2023年9月以前のおまけ分(無償SG RS外)"
-    ]
     
-    # 1. SPギフト使用会員率 (%) の処理 (floatでNaNを許可)
-    # ハイフンは欠損値として扱う
-    df['SPギフト使用会員率'] = df['SPギフト使用会員率'].astype(str).str.strip()
-    df['SPギフト使用会員率'] = pd.to_numeric(
-        df['SPギフト使用会員率'].replace(['', '-'], pd.NA), errors='coerce'
-    ).astype(float).round(1)
-    
-    # 2. 整数カラムの処理 (Int64を使用してブランク/欠損値を維持)
-    for col in numeric_cols:
-        # 文字列に変換し、カンマ(,)と全角スペースを削除（scrape_kpi_dataでカンマは削除済みだが念のため）
-        cleaned_series = df[col].astype(str).str.strip()
-        
-        # ★★★ 修正済み: ハイフン(-)や空文字列を欠損値(NaN)として扱う ★★★
-        # マイナス符号はここで削除されていないため、to_numericが負の数として処理
-        cleaned_series = cleaned_series.replace(['', '-'], pd.NA)
-
-        # to_numericで数値に変換し、Int64型に変換（NaN/NAを許容する整数型）
-        df[col] = pd.to_numeric(cleaned_series, errors='coerce').astype('Int64')
-
     # --- 重複データの削除 ---
+    # 配信時間(分)は数値だが、重複判定には問題ないためそのまま使用
     dedupe_cols = ["アカウントID", "ルームID", "配信日時", "配信時間(分)"]
     initial_count = len(df)
     df.drop_duplicates(subset=dedupe_cols, keep='first', inplace=True)
@@ -254,17 +210,16 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     
     df_final = df[final_cols].copy()
     
-    # 欠損値（pd.NA）を持つカラムをobject型に変換してから空文字列に置換し、TypeErrorを回避
-    # これにより、CSV出力時にブランク（空文字列）が書き出されます。
-    cols_with_na = df_final.columns[df_final.isna().any()].tolist()
+    # すべての文字列カラムについて、両端のスペースを確実に削除
+    for col in df_final.columns:
+        if df_final[col].dtype == 'object':
+            # ブランク、ハイフン、カンマを維持しつつ、不要な両端のスペースのみを排除
+            df_final[col] = df_final[col].astype(str).str.strip()
     
-    for col in cols_with_na:
-        # Int64やfloatをobject型に変換してから置換を実行
-        df_final[col] = df_final[col].astype('object')
-        
-    # 欠損値（pd.NA）を空文字列に変換
-    df_final = df_final.replace({pd.NA: ''})
+    # 数値型である「配信時間(分)」も、CSV出力時にカンマが入らないようint型に変換
+    df_final['配信時間(分)'] = pd.to_numeric(df_final['配信時間(分)'], errors='coerce').fillna(0).astype(int)
 
+    # df_finalは、文字列データ（カンマ・ハイフン含む）、数値データ（配信時間(分)）が混在した状態でCSV出力されます。
     return df_final
 
 
@@ -282,7 +237,7 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
         FTP_USER = st.secrets["ftp"]["user"]
         FTP_PASS = st.secrets["ftp"]["password"]
         
-        # Secretsからtarget_base_pathを読み込む
+        # ★★★ 修正済み: Secretsからtarget_base_pathを読み込む ★★★
         FTP_BASE_PATH_FROM_SECRETS = st.secrets["ftp"]["target_base_path"]
         
     except KeyError:
@@ -298,7 +253,7 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
     
     # CSVデータをインメモリで作成 (UTF-8 with BOM)
     csv_buffer = io.StringIO()
-    # 修正：df_finalはすでにpd.NAが''に変換されているため、そのままto_csvを使用
+    # 数値カラムは数値として、文字列カラム（カンマ・ハイフン含む）は文字列としてto_csvで書き出し
     df.to_csv(csv_buffer, index=False, encoding='utf-8-sig')
     csv_data = csv_buffer.getvalue()
 
@@ -308,7 +263,6 @@ def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
             ftp.encoding = 'utf-8'
             ftp.login(user=FTP_USER, passwd=FTP_PASS)
             
-            # storlinesを使用して、改行コードの問題を回避しつつテキストとしてアップロード
             ftp.storlines(f'STOR {ftp_path}', io.BytesIO(csv_data.encode('utf-8-sig')))
             
         st.success(f"✅ FTPアップロード完了: **{ftp_path}**")
@@ -355,7 +309,6 @@ def main():
         st.warning("処理対象の月を選択してください。")
         return
         
-    # 選択されたラベルからdatetimeオブジェクトを抽出
     selected_months = [
         dt for label, dt in month_options if label in selected_labels
     ]
@@ -369,14 +322,12 @@ def main():
         all_success = True
         with st.spinner("処理中: 選択された月のKPIデータを取得・整形しています..."):
             
-            # 選択された月を順番に処理
             for month_dt in selected_months:
                 st.subheader(f"📅 {month_dt.strftime('%Y/%m')} の処理を開始")
                 
                 # 1. データ取得
                 raw_df = scrape_kpi_data(session, month_dt)
                 
-                # raw_dfが空ならすぐに次の月にスキップ
                 if raw_df.empty:
                     st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは取得できませんでした。処理をスキップします。")
                     all_success = False
@@ -386,9 +337,9 @@ def main():
                 # 2. データ整形と重複削除
                 processed_df = process_kpi_data(raw_df)
                 
-                # 整形後も空でないか確認（最終チェック）
                 if not processed_df.empty:
-                    # st.dataframe()は引き続きコメントアウトし、エラーを回避
+                    # ★★★ 修正済み: StreamlitのTypeError回避のためコメントアウト ★★★
+                    # st.dataframe(processed_df.head(), caption=f"{month_dt.strftime('%Y/%m')} データのプレビュー (全 {len(processed_df)} 件)", use_container_width=True)
                     st.success(f"データ ({len(processed_df)} 件) を正常に取得・整形しました。アップロードを開始します。")
 
                     # 3. FTPアップロード
@@ -397,7 +348,7 @@ def main():
                     st.warning(f"⚠️ {month_dt.strftime('%Y/%m')} のデータは、整形（重複削除など）後に残ったレコードが0件でした。アップロードをスキップします。")
                     all_success = False
                 
-                st.markdown("---") # 月の区切り線
+                st.markdown("---")
 
         st.balloons()
         if all_success:
