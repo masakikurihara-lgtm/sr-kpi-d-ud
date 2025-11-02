@@ -300,7 +300,8 @@ def main():
     month_options = get_target_months()
     month_labels = [label for label, _ in month_options]
     
-    st.header("1. 対象月選択")
+    #st.header("1. 対象月選択")
+    t.markdown("#### 1. 対象月選択")
     
     # 複数月選択 (マルチセレクト)
     selected_labels = st.multiselect(
