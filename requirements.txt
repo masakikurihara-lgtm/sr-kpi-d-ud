@@ -1,0 +1,6 @@
+streamlit
+requests
+pandas
+beautifulsoup4
+pytz
+html5lib
