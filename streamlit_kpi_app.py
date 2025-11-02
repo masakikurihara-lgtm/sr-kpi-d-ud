@@ -282,6 +282,7 @@ def main():
         "<h1 style='font-size:28px; text-align:left; color:#1f2937;'>SHOWROOM ライブKPIアップロード</h1>",
         unsafe_allow_html=True
     )  
+    st.markdown("<p style='text-align: left;'>⚠️ <b>注意</b>: このツールは、<b>Secretsに設定されたCookieが有効な間のみ</b>動作します。</p>", unsafe_allow_html=True)
     st.markdown("---")
 
     # --- Secretsから機密情報を読み込み ---
