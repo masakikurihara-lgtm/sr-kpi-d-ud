@@ -196,8 +196,6 @@ def scrape_kpi_data(session: requests.Session, month_dt: datetime) -> pd.DataFra
     return df
 
 
-# streamlit_kpi_app.py 内の process_kpi_data 関数
-
 def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     データフレームの整形、重複削除、データ型の安全な変換を行います。
@@ -207,10 +205,8 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     # --- データ型の調整とクリーニング ---
-    # CSVヘッダーの順番に基づいて、数値として扱うカラムを定義
     numeric_cols = [
         "配信時間(分)", "連続配信日数", "合計視聴数", "視聴会員数", "アクション会員数", 
-        # SPギフト使用会員率 はfloatとして個別に扱う
         "初ルーム来訪者数", "初SR来訪者数", "短時間滞在者数", "ルームレベル", "フォロワー数", 
         "フォロワー増減数", "Post人数", "獲得支援point", "コメント数", "コメント人数", 
         "初コメント人数", "ギフト数", "ギフト人数", "初ギフト人数", "期限あり/期限なしSGのギフティング数", 
@@ -233,11 +229,9 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         cleaned_series = cleaned_series.replace(['', '-'], pd.NA)
 
         # to_numericで数値に変換し、Int64型に変換（NaN/NAを許容する整数型）
-        # 'Int64'を使用することで、①ブランクをブランク（NA）のまま維持し、②マイナス符号も維持します。
         df[col] = pd.to_numeric(cleaned_series, errors='coerce').astype('Int64')
 
     # --- 重複データの削除 ---
-    # (変更なし)
     dedupe_cols = ["アカウントID", "ルームID", "配信日時", "配信時間(分)"]
     initial_count = len(df)
     df.drop_duplicates(subset=dedupe_cols, keep='first', inplace=True)
@@ -247,7 +241,6 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         st.success(f"重複データを {initial_count - deduped_count} 件削除しました。")
     
     # 最終的なCSVの並び順にカラムを整理
-    # (変更なし)
     final_cols = [
         "アカウントID", "ルームID", "配信日時", "配信時間(分)", "連続配信日数", "ルーム名",
         "合計視聴数", "視聴会員数", "アクション会員数", "SPギフト使用会員率", "初ルーム来訪者数",
@@ -258,11 +251,20 @@ def process_kpi_data(df: pd.DataFrame) -> pd.DataFrame:
         "2023年9月以前のおまけ分(無償SG RS外)"
     ]
     
-    # Int64型を、CSV書き出し前にPythonの標準欠損値（空文字列）に戻すことで、ブランクで出力します。
-    # 欠損値（pd.NA）を空文字列に変換
-    df = df.replace({pd.NA: ''})
+    df_final = df[final_cols].copy()
     
-    return df[final_cols].copy()
+    # ★★★ 最終エラー回避のための修正ロジック ★★★
+    # 欠損値（pd.NA）を持つカラムをobject型に変換してから空文字列に置換し、TypeErrorを回避
+    cols_with_na = df_final.columns[df_final.isna().any()].tolist()
+    
+    for col in cols_with_na:
+        # Int64やfloatをobject型に変換してから置換を実行
+        df_final[col] = df_final[col].astype('object')
+        
+    # 欠損値（pd.NA）を空文字列に変換
+    df_final = df_final.replace({pd.NA: ''})
+
+    return df_final
 
 
 def upload_to_ftp(df: pd.DataFrame, month_dt: datetime):
